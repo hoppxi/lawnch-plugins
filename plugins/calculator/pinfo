@@ -1,0 +1,9 @@
+[plugin]
+name=calculator
+version=0.1.0-alpha
+author=hoppxi
+description=calculator plugin
+url=https://github.com/hoppxi/lawnch-plugins
+
+[build]
+src=.

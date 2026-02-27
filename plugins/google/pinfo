@@ -1,0 +1,12 @@
+[plugin]
+name=google
+version=0.1.0-alpha
+author=hoppxi
+description=google plugin
+url=https://github.com/hoppxi/lawnch
+
+[build]
+src=.
+
+[dependencies]
+curl
