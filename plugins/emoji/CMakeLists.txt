@@ -23,5 +23,13 @@ set_target_properties(emoji PROPERTIES
 )
 
 install(TARGETS emoji
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/share/lawnch/plugins
+	DESTINATION .
+)
+
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/pinfo
+	DESTINATION .
+)
+
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/emoji.json
+	DESTINATION ./assets
 )

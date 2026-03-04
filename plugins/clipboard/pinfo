@@ -1,9 +1,9 @@
 [plugin]
 name=clipboard
-version=0.1.0-alpha
+version=0.2.0-alpha
 author=hoppxi
 description=clipboard plugin
-url=https://github.com/hoppxi/lawnch
+url=https://github.com/hoppxi/lawnch-plugins
 
 [build]
 src=.

@@ -1,15 +1,12 @@
 [plugin]
 name=emoji
-version=0.1.0-alpha
+version=0.2.0-alpha
 author=hoppxi
 description=emoji plugin
-url=https://github.com/hoppxi/lawnch
+url=https://github.com/hoppxi/lawnch-plugins
 
 [build]
 src=.
-
-[assets]
-emoji.json=$out/emoji.json
 
 [dependencies]
 nlohmann_json

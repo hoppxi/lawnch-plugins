@@ -1,0 +1,9 @@
+[plugin]
+name=files-nav
+version=0.1.0-alpha
+author=hoppxi
+description=Navigate files and folders with sub-menu navigation
+url=https://github.com/hoppxi/lawnch-plugins
+
+[build]
+src=.

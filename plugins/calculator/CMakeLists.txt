@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.17)
 project(calculator LANGUAGES CXX)
 
-
 find_package(LawnchPluginApi REQUIRED)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,5 +19,9 @@ set_target_properties(calculator PROPERTIES
 )
 
 install(TARGETS calculator
-	DESTINATION ${CMAKE_INSTALL_PREFIX}/share/lawnch/plugins
+	DESTINATION .
+)
+
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/pinfo
+	DESTINATION .
 )

@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define LAWNCH_PLUGIN_API_VERSION 0
+#define LAWNCH_PLUGIN_API_VERSION 1
 
 typedef struct {
   char *name;
@@ -19,6 +19,7 @@ typedef struct {
   char *command;
   char *type;
   char *preview_image_path;
+  int has_submenu;
 } LawnchResult;
 
 // Flags for LawnchPluginVTable
@@ -101,7 +102,6 @@ typedef struct LawnchHostApi_s {
   const LawnchStrApi *str_api;
 } LawnchHostApi;
 
-// Struct containing pointers to the plugin's functions
 typedef struct {
   int plugin_api_version;
 
@@ -111,6 +111,8 @@ typedef struct {
   LawnchResult *(*get_help)(
       void); // Returns a single result, wrapped as a pointer
   LawnchResult *(*query)(const char *term, int *num_results);
+  LawnchResult *(*query_submenu)(const char *result_command, const char *term,
+                                 int *num_results);
   void (*free_results)(LawnchResult *results, int num_results);
 
   uint32_t flags;

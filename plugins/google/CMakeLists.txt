@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.17)
 project(google LANGUAGES CXX)
 
-
 find_package(LawnchPluginApi REQUIRED)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(CURL REQUIRED)
 
 add_library(google SHARED
-  google.cpp
+	google.cpp
 )
 
 target_link_libraries(google PRIVATE
@@ -17,14 +16,18 @@ target_link_libraries(google PRIVATE
 )
 
 target_link_libraries(google PRIVATE
-  CURL::libcurl
+	CURL::libcurl
 )
 
 set_target_properties(google PROPERTIES
-  PREFIX ""
-  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+	PREFIX ""
+	LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
 )
 
 install(TARGETS google
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/share/lawnch/plugins
+	DESTINATION .
+)
+
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/pinfo
+	DESTINATION .
 )

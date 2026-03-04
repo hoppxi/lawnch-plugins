@@ -20,6 +20,7 @@ struct Result {
   std::string command;
   std::string type;
   std::string preview_image_path;
+  bool has_submenu = false;
 
   LawnchResult to_c() const {
     LawnchResult r;
@@ -29,6 +30,7 @@ struct Result {
     r.command = strdup(command);
     r.type = strdup(type);
     r.preview_image_path = strdup(preview_image_path);
+    r.has_submenu = has_submenu ? 1 : 0;
     return r;
   }
 };
@@ -44,6 +46,10 @@ public:
   virtual std::vector<std::string> get_triggers() = 0;
   virtual Result get_help() = 0;
   virtual std::vector<Result> query(const std::string &term) = 0;
+  virtual std::vector<Result> query_submenu(const std::string &result_command,
+                                            const std::string &term) {
+    return {};
+  }
   virtual uint32_t get_flags() const { return 0; }
 };
 
@@ -129,6 +135,30 @@ static void plugin_free_results(LawnchResult *results, int num_results) {
   delete[] results;
 }
 
+static LawnchResult *plugin_query_submenu(const char *result_command,
+                                          const char *term, int *num_results) {
+  if (Lawnch::g_plugin_instance && result_command && term) {
+    try {
+      std::vector<Lawnch::Result> results =
+          Lawnch::g_plugin_instance->query_submenu(result_command, term);
+      *num_results = results.size();
+      if (results.empty())
+        return nullptr;
+
+      LawnchResult *arr = new LawnchResult[results.size()];
+      for (size_t i = 0; i < results.size(); ++i) {
+        arr[i] = results[i].to_c();
+      }
+      return arr;
+    } catch (...) {
+      *num_results = 0;
+      return nullptr;
+    }
+  }
+  *num_results = 0;
+  return nullptr;
+}
+
 static LawnchPluginVTable g_vtable = {.plugin_api_version =
                                           LAWNCH_PLUGIN_API_VERSION,
                                       .init = plugin_init,
@@ -136,6 +166,7 @@ static LawnchPluginVTable g_vtable = {.plugin_api_version =
                                       .get_triggers = plugin_get_triggers,
                                       .get_help = plugin_get_help,
                                       .query = plugin_query,
+                                      .query_submenu = plugin_query_submenu,
                                       .free_results = plugin_free_results,
                                       .flags = 0};
 
