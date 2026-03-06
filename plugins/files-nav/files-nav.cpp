@@ -148,78 +148,110 @@ std::string get_icon(const fs::directory_entry &e) {
 }
 
 std::vector<Lawnch::Result> list_directory(const fs::path &dir,
-                                           const std::string &filter) {
-  std::vector<Lawnch::Result> results;
-
-  std::error_code ec;
-  if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec))
-    return results;
-
-  std::string filter_lower = str_to_lower(filter);
-
-  std::vector<fs::directory_entry> entries;
+                                           const std::string &filter,
+                                           const LawnchHostApi *host) {
   try {
-    for (const auto &e : fs::directory_iterator(
-             dir, fs::directory_options::skip_permission_denied, ec)) {
-      if (ec) {
-        ec.clear();
-        continue;
+    std::vector<Lawnch::Result> results;
+
+    std::error_code ec;
+    if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec))
+      return results;
+
+    std::string filter_lower = str_to_lower(filter);
+
+    std::vector<fs::directory_entry> entries;
+    try {
+      for (const auto &e : fs::directory_iterator(
+               dir, fs::directory_options::skip_permission_denied, ec)) {
+        if (ec) {
+          ec.clear();
+          continue;
+        }
+        if (is_hidden(e.path()))
+          continue;
+        entries.push_back(e);
       }
-      if (is_hidden(e.path()))
+    } catch (const std::exception &e) {
+      if (host && host->log_api) {
+        std::string msg = std::string("Error scanning directory: ") + e.what();
+        host->log_api->log("FilesNavPlugin", LAWNCH_LOG_ERROR, msg.c_str());
+      }
+      return results;
+    } catch (...) {
+      if (host && host->log_api) {
+        host->log_api->log("FilesNavPlugin", LAWNCH_LOG_ERROR,
+                           "Unknown error scanning directory");
+      }
+      return results;
+    }
+
+    std::sort(entries.begin(), entries.end(),
+              [](const fs::directory_entry &a, const fs::directory_entry &b) {
+                std::error_code ec2;
+                bool a_dir = a.is_directory(ec2);
+                bool b_dir = b.is_directory(ec2);
+                if (a_dir != b_dir)
+                  return a_dir > b_dir;
+                auto a_name = a.path().filename().string();
+                auto b_name = b.path().filename().string();
+                std::transform(a_name.begin(), a_name.end(), a_name.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+                std::transform(b_name.begin(), b_name.end(), b_name.begin(),
+                               [](unsigned char c) { return std::tolower(c); });
+                return a_name < b_name;
+              });
+
+    for (const auto &e : entries) {
+      std::string name = e.path().filename().string();
+
+      if (!filter_lower.empty() &&
+          str_to_lower(name).find(filter_lower) == std::string::npos)
         continue;
-      entries.push_back(e);
+
+      std::error_code ec3;
+      bool is_dir = e.is_directory(ec3);
+      std::string icon = get_icon(e);
+      std::string path_str = e.path().string();
+
+      std::string cmd = is_dir ? path_str : ("xdg-open \"" + path_str + "\"");
+
+      Lawnch::Result r;
+      r.name = name;
+      r.comment = path_str;
+      r.icon = icon;
+      r.command = cmd;
+      r.type = "plugin";
+      r.preview_image_path = "";
+      r.has_submenu = is_dir;
+
+      if (icon == "image-x-generic") {
+        r.preview_image_path = path_str;
+      }
+
+      results.push_back(r);
     }
-  } catch (...) {
+
+    if (host && host->log_api && (!dir.empty() || !filter.empty())) {
+      std::string msg = "List directory '" + dir.string() + " " + filter +
+                        "' returned " + std::to_string(results.size()) +
+                        " files";
+      host->log_api->log("FilesNavPlugin", LAWNCH_LOG_DEBUG, msg.c_str());
+    }
+
     return results;
-  }
 
-  std::sort(entries.begin(), entries.end(),
-            [](const fs::directory_entry &a, const fs::directory_entry &b) {
-              std::error_code ec2;
-              bool a_dir = a.is_directory(ec2);
-              bool b_dir = b.is_directory(ec2);
-              if (a_dir != b_dir)
-                return a_dir > b_dir;
-              auto a_name = a.path().filename().string();
-              auto b_name = b.path().filename().string();
-              std::transform(a_name.begin(), a_name.end(), a_name.begin(),
-                             [](unsigned char c) { return std::tolower(c); });
-              std::transform(b_name.begin(), b_name.end(), b_name.begin(),
-                             [](unsigned char c) { return std::tolower(c); });
-              return a_name < b_name;
-            });
-
-  for (const auto &e : entries) {
-    std::string name = e.path().filename().string();
-
-    if (!filter_lower.empty() &&
-        str_to_lower(name).find(filter_lower) == std::string::npos)
-      continue;
-
-    std::error_code ec3;
-    bool is_dir = e.is_directory(ec3);
-    std::string icon = get_icon(e);
-    std::string path_str = e.path().string();
-
-    std::string cmd = is_dir ? path_str : ("xdg-open \"" + path_str + "\"");
-
-    Lawnch::Result r;
-    r.name = name;
-    r.comment = path_str;
-    r.icon = icon;
-    r.command = cmd;
-    r.type = "plugin";
-    r.preview_image_path = "";
-    r.has_submenu = is_dir;
-
-    if (icon == "image-x-generic") {
-      r.preview_image_path = path_str;
+  } catch (const std::exception &e) {
+    if (host && host->log_api) {
+      std::string msg = std::string("FilesNav query failed: ") + e.what();
+      host->log_api->log("FilesNavPlugin", LAWNCH_LOG_ERROR, msg.c_str());
     }
-
-    results.push_back(r);
+    Lawnch::Result r;
+    r.name = "FilesNav Error";
+    r.comment = e.what();
+    r.icon = "dialog-error";
+    r.type = "error";
+    return {r};
   }
-
-  return results;
 }
 
 void parse_query(const std::string &term, fs::path &out_dir,
@@ -266,11 +298,19 @@ public:
       const char *root = host->get_config_value(host, "root");
       if (root && root[0] != '\0') {
         root_dir_ = expand_home(root, host);
+        if (host && host->log_api) {
+          host->log_api->log("FilesNavPlugin", LAWNCH_LOG_INFO,
+                             ("Initialized with root: " + root_dir_).c_str());
+        }
         return;
       }
     }
 
     root_dir_ = "/";
+    if (host && host->log_api) {
+      host->log_api->log("FilesNavPlugin", LAWNCH_LOG_INFO,
+                         "Initialized with default root (/)");
+    }
   }
 
   std::vector<std::string> get_triggers() override {
@@ -297,7 +337,7 @@ public:
     fs::path dir;
     std::string query_str;
     parse_query(term, dir, query_str, root_dir_, host_);
-    return list_directory(dir, query_str);
+    return list_directory(dir, query_str, host_);
   }
 
   std::vector<Lawnch::Result> query_submenu(const std::string &result_command,
@@ -307,7 +347,7 @@ public:
     if (!fs::exists(dir, ec) || !fs::is_directory(dir, ec))
       return {};
 
-    return list_directory(dir, term);
+    return list_directory(dir, term, host_);
   }
 };
 

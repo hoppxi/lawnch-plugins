@@ -1,6 +1,6 @@
 [plugin]
 name=command
-version=0.2.0-alpha
+version=0.2.1-alpha
 author=hoppxi
 description=command plugin
 url=https://github.com/hoppxi/lawnch-plugins

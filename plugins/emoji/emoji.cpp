@@ -62,48 +62,70 @@ void init_emoji(EmojiState *state, const LawnchHostApi *host) {
 }
 
 std::vector<Lawnch::Result> do_emoji_query(const std::string &term,
-                                           EmojiState *state) {
-  if (!state->loaded) {
-    Lawnch::Result err_result;
-    err_result.name = "Error: emoji.json not loaded";
-    err_result.comment = "Could not find or parse asset file";
-    err_result.icon = "dialog-error";
-    err_result.type = "error";
-    return {err_result};
-  }
+                                           EmojiState *state,
+                                           const LawnchHostApi *host) {
+  try {
+    if (!state->loaded) {
+      Lawnch::Result err_result;
+      err_result.name = "Error: emoji.json not loaded";
+      err_result.comment = "Could not find or parse asset file";
+      err_result.icon = "dialog-error";
+      err_result.type = "error";
+      return {err_result};
+    }
 
-  std::string term_str = term;
-  std::vector<Lawnch::Result> results_vec;
+    std::string term_str = term;
+    std::vector<Lawnch::Result> results_vec;
 
-  for (const auto &item : state->emoji_cache) {
-    if (!item.is_object())
-      continue;
-    std::string text = item.value("text", "");
-    std::string emoji = item.value("emoji", "");
+    for (const auto &item : state->emoji_cache) {
+      if (!item.is_object())
+        continue;
+      std::string text = item.value("text", "");
+      std::string emoji = item.value("emoji", "");
 
-    bool match = contains_ignore_case(text, term_str);
-    if (!match && item.contains("keywords")) {
-      for (const auto &keyword_item : item["keywords"]) {
-        if (contains_ignore_case(keyword_item.get<std::string>(), term_str)) {
-          match = true;
-          break;
+      bool match = contains_ignore_case(text, term_str);
+      if (!match && item.contains("keywords")) {
+        for (const auto &keyword_item : item["keywords"]) {
+          if (contains_ignore_case(keyword_item.get<std::string>(), term_str)) {
+            match = true;
+            break;
+          }
         }
+      }
+
+      if (match) {
+        Lawnch::Result r;
+        r.name = emoji + "  " + text;
+        r.comment = item.value("category", "");
+        r.command = "echo -n '" + emoji + "' | wl-copy";
+        r.type = "emoji";
+        results_vec.push_back(r);
+
+        if (results_vec.size() >= 50)
+          break;
       }
     }
 
-    if (match) {
-      Lawnch::Result r;
-      r.name = emoji + "  " + text;
-      r.comment = item.value("category", "");
-      r.command = "echo -n '" + emoji + "' | wl-copy";
-      r.type = "emoji";
-      results_vec.push_back(r);
-
-      if (results_vec.size() >= 50)
-        break;
+    if (host && host->log_api && !term.empty()) {
+      std::string msg = "Query '" + term + "' returned " +
+                        std::to_string(results_vec.size()) + " emojis";
+      host->log_api->log("EmojiPlugin", LAWNCH_LOG_DEBUG, msg.c_str());
     }
+
+    return results_vec;
+
+  } catch (const std::exception &e) {
+    if (host && host->log_api) {
+      std::string msg = std::string("Emoji query failed: ") + e.what();
+      host->log_api->log("EmojiPlugin", LAWNCH_LOG_ERROR, msg.c_str());
+    }
+    Lawnch::Result r;
+    r.name = "Emoji Error";
+    r.comment = e.what();
+    r.icon = "dialog-error";
+    r.type = "error";
+    return {r};
   }
-  return results_vec;
 }
 
 } // namespace
@@ -115,7 +137,13 @@ private:
 public:
   void init(const LawnchHostApi *host) override {
     Plugin::init(host);
+    if (host && host->log_api) {
+      host->log_api->log("EmojiPlugin", LAWNCH_LOG_INFO, "Initializing...");
+    }
     init_emoji(&state_, host);
+    if (host && host->log_api && state_.loaded) {
+      host->log_api->log("EmojiPlugin", LAWNCH_LOG_INFO, "Emoji data loaded");
+    }
   }
 
   void destroy() override {
@@ -137,7 +165,7 @@ public:
   }
 
   std::vector<Lawnch::Result> query(const std::string &term) override {
-    return do_emoji_query(term, &state_);
+    return do_emoji_query(term, &state_, host_);
   }
 };
 

@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -78,6 +79,11 @@ void init_wallpapers(WallpapersState *state, const LawnchHostApi *host) {
     state->wallpaper_dir = expand_home("~/Pictures/Wallpapers", host);
   }
 
+  if (host && host->log_api) {
+    std::string msg = "Initialized with directory: " + state->wallpaper_dir;
+    host->log_api->log("WallpapersPlugin", LAWNCH_LOG_INFO, msg.c_str());
+  }
+
   const char *cmd = host->get_config_value(host, "command");
   if (cmd && *cmd) {
     state->command_template = cmd;
@@ -89,42 +95,68 @@ void init_wallpapers(WallpapersState *state, const LawnchHostApi *host) {
 std::vector<Lawnch::Result> do_wallpaper_query(const std::string &term,
                                                WallpapersState *state,
                                                const LawnchHostApi *host) {
-  if (!fs::exists(state->wallpaper_dir) ||
-      !fs::is_directory(state->wallpaper_dir)) {
-    return {};
-  }
+  try {
+    if (!fs::exists(state->wallpaper_dir) ||
+        !fs::is_directory(state->wallpaper_dir)) {
+      if (host && host->log_api) {
+        std::string msg =
+            "Wallpaper directory not found: " + state->wallpaper_dir;
+        host->log_api->log("WallpapersPlugin", LAWNCH_LOG_WARNING, msg.c_str());
+      }
+      return {};
+    }
 
-  std::string search = to_lower(term, host);
-  std::vector<Lawnch::Result> results;
+    std::string search = to_lower(term, host);
+    std::vector<Lawnch::Result> results;
 
-  fs::recursive_directory_iterator it(
-      state->wallpaper_dir, fs::directory_options::skip_permission_denied);
+    fs::recursive_directory_iterator it(
+        state->wallpaper_dir, fs::directory_options::skip_permission_denied);
 
-  for (const auto &entry : it) {
-    if (!entry.is_regular_file())
-      continue;
+    for (const auto &entry : it) {
+      if (!entry.is_regular_file())
+        continue;
 
-    const fs::path &p = entry.path();
-    if (!is_image_ext(p.extension().string()))
-      continue;
+      const fs::path &p = entry.path();
+      if (!is_image_ext(p.extension().string()))
+        continue;
 
-    std::string fname = to_lower(p.filename().string(), host);
-    if (!search.empty() && fname.find(search) == std::string::npos)
-      continue;
+      std::string fname = to_lower(p.filename().string(), host);
+      if (!search.empty() && fname.find(search) == std::string::npos)
+        continue;
 
-    std::string abs_path = p.string();
+      std::string abs_path = p.string();
 
+      Lawnch::Result r;
+      r.name = p.filename().string();
+      r.comment = p.parent_path().string();
+      r.icon = "preferences-desktop-wallpaper";
+      r.command = build_command(state->command_template, abs_path);
+      r.type = "wallpaper-plugin";
+      r.preview_image_path = (p.parent_path() / p.filename()).string();
+
+      results.push_back(r);
+    }
+
+    if (host && host->log_api && !term.empty()) {
+      std::string msg = "Query '" + term + "' returned " +
+                        std::to_string(results.size()) + " wallpapers";
+      host->log_api->log("WallpapersPlugin", LAWNCH_LOG_DEBUG, msg.c_str());
+    }
+
+    return results;
+
+  } catch (const std::exception &e) {
+    if (host && host->log_api) {
+      std::string msg = std::string("Wallpaper query failed: ") + e.what();
+      host->log_api->log("WallpapersPlugin", LAWNCH_LOG_ERROR, msg.c_str());
+    }
     Lawnch::Result r;
-    r.name = p.filename().string();
-    r.comment = p.parent_path().string();
-    r.icon = "preferences-desktop-wallpaper";
-    r.command = build_command(state->command_template, abs_path);
-    r.type = "wallpaper-plugin";
-    r.preview_image_path = (p.parent_path() / p.filename()).string();
-
-    results.push_back(r);
+    r.name = "Wallpaper plugin error";
+    r.comment = e.what();
+    r.icon = "dialog-error";
+    r.type = "error";
+    return {r};
   }
-  return results;
 }
 
 } // namespace

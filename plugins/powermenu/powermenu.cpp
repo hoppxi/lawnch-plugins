@@ -77,6 +77,11 @@ void init_powermenu(PowermenuState *state, const LawnchHostApi *host) {
   for (const auto &option_key : state->option_order) {
     if (state->options.find(option_key) == state->options.end()) {
       state->options[option_key] = {option_key, "", "", ""};
+      if (host && host->log_api) {
+        std::string msg = "Custom option '" + option_key +
+                          "' has no defaults, may be improper";
+        host->log_api->log("PowermenuPlugin", LAWNCH_LOG_WARNING, msg.c_str());
+      }
     }
 
     PowerOption &option = state->options[option_key];
@@ -104,39 +109,61 @@ void init_powermenu(PowermenuState *state, const LawnchHostApi *host) {
 }
 
 std::vector<Lawnch::Result> do_power_query(const std::string &term,
-                                           PowermenuState *state) {
-  std::string lower_term = term;
-  std::transform(lower_term.begin(), lower_term.end(), lower_term.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+                                           PowermenuState *state,
+                                           const LawnchHostApi *host) {
+  try {
+    std::string lower_term = term;
+    std::transform(lower_term.begin(), lower_term.end(), lower_term.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
 
-  std::vector<Lawnch::Result> results;
+    std::vector<Lawnch::Result> results;
 
-  for (const auto &option_name : state->option_order) {
-    const auto &option = state->options.at(option_name);
+    for (const auto &option_name : state->option_order) {
+      const auto &option = state->options.at(option_name);
 
-    bool match = false;
-    if (lower_term.empty()) {
-      match = true;
-    } else {
-      std::string name = option.name;
-      std::transform(name.begin(), name.end(), name.begin(),
-                     [](unsigned char c) { return std::tolower(c); });
-      if (name.find(lower_term) != std::string::npos) {
+      bool match = false;
+      if (lower_term.empty()) {
         match = true;
+      } else {
+        std::string name = option.name;
+        std::transform(name.begin(), name.end(), name.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+        if (name.find(lower_term) != std::string::npos) {
+          match = true;
+        }
+      }
+
+      if (match) {
+        Lawnch::Result r;
+        r.name = option.name;
+        r.comment = option.comment;
+        r.icon = option.icon;
+        r.command = option.command;
+        r.type = "plugin";
+        results.push_back(r);
       }
     }
 
-    if (match) {
-      Lawnch::Result r;
-      r.name = option.name;
-      r.comment = option.comment;
-      r.icon = option.icon;
-      r.command = option.command;
-      r.type = "plugin";
-      results.push_back(r);
+    if (host && host->log_api && !term.empty()) {
+      std::string msg = "Query '" + term + "' returned " +
+                        std::to_string(results.size()) + " power options";
+      host->log_api->log("PowermenuPlugin", LAWNCH_LOG_DEBUG, msg.c_str());
     }
+
+    return results;
+
+  } catch (const std::exception &e) {
+    if (host && host->log_api) {
+      std::string msg = std::string("Powermenu query failed: ") + e.what();
+      host->log_api->log("PowermenuPlugin", LAWNCH_LOG_ERROR, msg.c_str());
+    }
+    Lawnch::Result r;
+    r.name = "Powermenu Error";
+    r.comment = e.what();
+    r.icon = "dialog-error";
+    r.type = "error";
+    return {r};
   }
-  return results;
 }
 
 } // namespace
@@ -149,6 +176,11 @@ public:
   void init(const LawnchHostApi *host) override {
     Plugin::init(host);
     init_powermenu(&state_, host);
+    if (host && host->log_api) {
+      std::string msg = "Loaded " + std::to_string(state_.option_order.size()) +
+                        " power options";
+      host->log_api->log("PowermenuPlugin", LAWNCH_LOG_INFO, msg.c_str());
+    }
   }
 
   void destroy() override {
@@ -168,7 +200,7 @@ public:
   }
 
   std::vector<Lawnch::Result> query(const std::string &term) override {
-    return do_power_query(term, &state_);
+    return do_power_query(term, &state_, host_);
   }
 
   uint32_t get_flags() const override {

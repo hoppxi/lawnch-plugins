@@ -246,6 +246,11 @@ void init_files(FilesState *state, const LawnchHostApi *host) {
   if (max_depth && *max_depth) {
     state->max_depth = std::stoi(max_depth);
   }
+  if (host && host->log_api) {
+    std::string msg =
+        "Initialized with max_depth=" + std::to_string(state->max_depth);
+    host->log_api->log("FilesPlugin", LAWNCH_LOG_INFO, msg.c_str());
+  }
 }
 
 void parse_query(const std::string &term, fs::path &out_dir,
@@ -280,60 +285,84 @@ void parse_query(const std::string &term, fs::path &out_dir,
 std::vector<Lawnch::Result> do_file_query(const std::string &term,
                                           FilesState *state,
                                           const LawnchHostApi *host) {
-  fs::path dir;
-  std::string query_str;
-  parse_query(term, dir, query_str, host);
+  try {
+    fs::path dir;
+    std::string query_str;
+    parse_query(term, dir, query_str, host);
 
-  if (!fs::exists(dir)) {
-    return {};
-  }
-
-  DirIndex *index;
-  {
-    std::lock_guard lock(state->index_map_mutex);
-    index = &state->indexes[dir.string()];
-  }
-
-  std::call_once(index->once, [&]() {
-    std::thread(scan_dir, index, dir, state->max_depth).detach();
-  });
-
-  std::string q = to_lower(query_str, host);
-  std::vector<Lawnch::Result> out;
-
-  const char *editor = std::getenv("EDITOR") ?: "nano";
-  const char *terminal = std::getenv("TERMINAL") ?: "xterm";
-
-  {
-    std::shared_lock lock(index->mutex);
-
-    for (const auto &f : index->files) {
-      if (!q.empty() && f.name_lower.find(q) == std::string::npos)
-        continue;
-
-      std::string cmd = f.is_dir ? std::string(terminal) + " -e " + editor +
-                                       " \"" + f.path.string() + "\""
-                                 : "xdg-open \"" + f.path.string() + "\"";
-
-      Lawnch::Result r;
-      r.name = f.name;
-      r.comment = f.path.string();
-
-      std::string icon_name = get_icon_for_file(f);
-      r.icon = icon_name;
-
-      r.command = cmd;
-      r.type = "plugin";
-
-      if (icon_name == "image-x-generic") {
-        r.preview_image_path = f.path.string();
+    if (!fs::exists(dir)) {
+      if (host && host->log_api) {
+        std::string msg = "Directory not found: " + dir.string();
+        host->log_api->log("FilesPlugin", LAWNCH_LOG_WARNING, msg.c_str());
       }
-
-      out.push_back(r);
+      return {};
     }
-  }
 
-  return out;
+    DirIndex *index;
+    {
+      std::lock_guard lock(state->index_map_mutex);
+      index = &state->indexes[dir.string()];
+    }
+
+    std::call_once(index->once, [&]() {
+      std::thread(scan_dir, index, dir, state->max_depth).detach();
+    });
+
+    std::string q = to_lower(query_str, host);
+    std::vector<Lawnch::Result> out;
+
+    const char *editor = std::getenv("EDITOR") ?: "nano";
+    const char *terminal = std::getenv("TERMINAL") ?: "xterm";
+
+    {
+      std::shared_lock lock(index->mutex);
+
+      for (const auto &f : index->files) {
+        if (!q.empty() && f.name_lower.find(q) == std::string::npos)
+          continue;
+
+        std::string cmd = f.is_dir ? std::string(terminal) + " -e " + editor +
+                                         " \"" + f.path.string() + "\""
+                                   : "xdg-open \"" + f.path.string() + "\"";
+
+        Lawnch::Result r;
+        r.name = f.name;
+        r.comment = f.path.string();
+
+        std::string icon_name = get_icon_for_file(f);
+        r.icon = icon_name;
+
+        r.command = cmd;
+        r.type = "plugin";
+
+        if (icon_name == "image-x-generic") {
+          r.preview_image_path = f.path.string();
+        }
+
+        out.push_back(r);
+      }
+    }
+
+    if (host && host->log_api && !term.empty()) {
+      std::string msg = "Query '" + term + "' returned " +
+                        std::to_string(out.size()) + " files";
+      host->log_api->log("FilesPlugin", LAWNCH_LOG_DEBUG, msg.c_str());
+    }
+
+    return out;
+
+  } catch (const std::exception &e) {
+    if (host && host->log_api) {
+      std::string msg = std::string("File query failed: ") + e.what();
+      host->log_api->log("FilesPlugin", LAWNCH_LOG_ERROR, msg.c_str());
+    }
+    Lawnch::Result r;
+    r.name = "File Plugin Error";
+    r.comment = e.what();
+    r.icon = "dialog-error";
+    r.type = "error";
+    return {r};
+  }
 }
 
 } // namespace

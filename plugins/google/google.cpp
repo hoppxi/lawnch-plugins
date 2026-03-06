@@ -7,6 +7,7 @@
 #include <map>
 #include <mutex>
 #include <regex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -135,55 +136,77 @@ void worker_loop(GoogleState *state) {
 }
 
 std::vector<Lawnch::Result> do_google_query(const std::string &term,
-                                            GoogleState *state) {
-  std::string query_str = term;
-  std::string display =
-      query_str.empty() ? "Type to search Google..." : query_str;
+                                            GoogleState *state,
+                                            const LawnchHostApi *host) {
+  try {
+    std::string query_str = term;
+    std::string display =
+        query_str.empty() ? "Type to search Google..." : query_str;
 
-  std::vector<Lawnch::Result> results;
+    std::vector<Lawnch::Result> results;
 
-  std::string encoded_term = url_encode(query_str);
-  std::string command =
-      "xdg-open \"https://www.google.com/search?q=" + encoded_term + "\"";
+    std::string encoded_term = url_encode(query_str);
+    std::string command =
+        "xdg-open \"https://www.google.com/search?q=" + encoded_term + "\"";
 
-  Lawnch::Result r;
-  r.name = display;
-  r.comment = "Search Google (Enter to open)";
-  r.icon = "web-browser";
-  r.command = command;
-  r.type = "google";
-  results.push_back(r);
+    Lawnch::Result r;
+    r.name = display;
+    r.comment = "Search Google (Enter to open)";
+    r.icon = "web-browser";
+    r.command = command;
+    r.type = "google";
+    results.push_back(r);
 
-  bool cache_hit = false;
-  std::vector<std::string> cached_sugs;
+    bool cache_hit = false;
+    std::vector<std::string> cached_sugs;
 
-  if (!query_str.empty()) {
-    std::lock_guard<std::mutex> lock(state->mutex);
-    if (state->cache.count(query_str)) {
-      cached_sugs = state->cache[query_str];
-      cache_hit = true;
-    } else {
-      state->query_queue.push_back(query_str);
-      state->cv.notify_one();
+    if (!query_str.empty()) {
+      std::lock_guard<std::mutex> lock(state->mutex);
+      if (state->cache.count(query_str)) {
+        cached_sugs = state->cache[query_str];
+        cache_hit = true;
+      } else {
+        state->query_queue.push_back(query_str);
+        state->cv.notify_one();
+      }
     }
-  }
 
-  if (cache_hit) {
-    for (const auto &sug : cached_sugs) {
-      std::string sug_cmd =
-          "xdg-open \"https://www.google.com/search?q=" + url_encode(sug) +
-          "\"";
+    if (cache_hit) {
+      for (const auto &sug : cached_sugs) {
+        std::string sug_cmd =
+            "xdg-open \"https://www.google.com/search?q=" + url_encode(sug) +
+            "\"";
 
-      Lawnch::Result sr;
-      sr.name = sug;
-      sr.comment = "Google Suggestion";
-      sr.icon = "system-search";
-      sr.command = sug_cmd;
-      sr.type = "google-suggest";
-      results.push_back(sr);
+        Lawnch::Result sr;
+        sr.name = sug;
+        sr.comment = "Google Suggestion";
+        sr.icon = "system-search";
+        sr.command = sug_cmd;
+        sr.type = "google-suggest";
+        results.push_back(sr);
+      }
     }
+
+    if (host && host->log_api && !term.empty()) {
+      std::string msg = "Query '" + term + "' returned " +
+                        std::to_string(results.size()) + " suggestions";
+      host->log_api->log("GooglePlugin", LAWNCH_LOG_DEBUG, msg.c_str());
+    }
+
+    return results;
+
+  } catch (const std::exception &e) {
+    if (host && host->log_api) {
+      std::string msg = std::string("Google query failed: ") + e.what();
+      host->log_api->log("GooglePlugin", LAWNCH_LOG_ERROR, msg.c_str());
+    }
+    Lawnch::Result r;
+    r.name = "Google Error";
+    r.comment = e.what();
+    r.icon = "dialog-error";
+    r.type = "error";
+    return {r};
   }
-  return results;
 }
 
 } // namespace
@@ -195,9 +218,16 @@ private:
 public:
   void init(const LawnchHostApi *host) override {
     Plugin::init(host);
+    if (host && host->log_api) {
+      host->log_api->log("GooglePlugin", LAWNCH_LOG_INFO, "Initializing...");
+    }
     curl_global_init(CURL_GLOBAL_ALL);
     state_.running = true;
     state_.worker_thread = std::thread(worker_loop, &state_);
+    if (host && host->log_api) {
+      host->log_api->log("GooglePlugin", LAWNCH_LOG_INFO,
+                         "Worker thread started");
+    }
   }
 
   void destroy() override {
@@ -221,7 +251,7 @@ public:
   }
 
   std::vector<Lawnch::Result> query(const std::string &term) override {
-    return do_google_query(term, &state_);
+    return do_google_query(term, &state_, host_);
   }
 };
 

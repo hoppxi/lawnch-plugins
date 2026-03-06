@@ -37,12 +37,16 @@ bool contains_ignore_case(const std::string &str, const std::string &sub) {
   return (it != str.end());
 }
 
-std::vector<Lawnch::Result> do_clip_query(const std::string &term) {
+std::vector<Lawnch::Result> do_clip_query(const std::string &term,
+                                          const LawnchHostApi *host) {
   std::vector<Lawnch::Result> results;
   std::string output;
   try {
     output = exec("cliphist list");
   } catch (const std::exception &e) {
+    if (host && host->log_api) {
+      host->log_api->log("ClipboardPlugin", LAWNCH_LOG_ERROR, e.what());
+    }
     Lawnch::Result r;
     r.name = "Clipboard unavailable";
     r.comment = e.what();
@@ -52,6 +56,10 @@ std::vector<Lawnch::Result> do_clip_query(const std::string &term) {
   }
 
   if (output.empty()) {
+    if (host && host->log_api) {
+      host->log_api->log("ClipboardPlugin", LAWNCH_LOG_WARNING,
+                         "cliphist returned empty output");
+    }
     Lawnch::Result r;
     r.name = "Clipboard unavailable";
     r.comment = "cliphist not found or empty";
@@ -103,6 +111,13 @@ std::vector<Lawnch::Result> do_clip_query(const std::string &term) {
 
 class ClipboardPlugin : public Lawnch::Plugin {
 public:
+  void init(const LawnchHostApi *host) override {
+    Plugin::init(host);
+    if (host && host->log_api) {
+      host->log_api->log("ClipboardPlugin", LAWNCH_LOG_INFO, "Initialized");
+    }
+  }
+
   std::vector<std::string> get_triggers() override { return {":clip", ":c"}; }
 
   Lawnch::Result get_help() override {
@@ -115,7 +130,13 @@ public:
   }
 
   std::vector<Lawnch::Result> query(const std::string &term) override {
-    return do_clip_query(term);
+    auto results = do_clip_query(term, host_);
+    if (host_ && host_->log_api) {
+      std::string msg = "Query '" + term + "' returned " +
+                        std::to_string(results.size()) + " results";
+      host_->log_api->log("ClipboardPlugin", LAWNCH_LOG_DEBUG, msg.c_str());
+    }
+    return results;
   }
 
   uint32_t get_flags() const override {

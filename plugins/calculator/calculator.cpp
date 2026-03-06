@@ -206,7 +206,8 @@ double evaluate(const std::vector<Token> &tokens) {
   return values.top();
 }
 
-std::vector<Lawnch::Result> do_calc_query(const std::string &expr) {
+std::vector<Lawnch::Result> do_calc_query(const std::string &expr,
+                                          const LawnchHostApi *host) {
   std::string input = expr;
   input.erase(std::remove_if(input.begin(), input.end(),
                              [](char c) {
@@ -244,6 +245,11 @@ std::vector<Lawnch::Result> do_calc_query(const std::string &expr) {
     r.type = "calc";
     return {r};
   } catch (const std::exception &e) {
+    if (host && host->log_api) {
+      std::string msg =
+          std::string("Evaluation failed for: '") + expr + "': " + e.what();
+      host->log_api->log("CalculatorPlugin", LAWNCH_LOG_ERROR, msg.c_str());
+    }
     Lawnch::Result r;
     r.name = std::string("Error: ") + e.what();
     r.comment = input;
@@ -257,6 +263,13 @@ std::vector<Lawnch::Result> do_calc_query(const std::string &expr) {
 
 class CalculatorPlugin : public Lawnch::Plugin {
 public:
+  void init(const LawnchHostApi *host) override {
+    Plugin::init(host);
+    if (host && host->log_api) {
+      host->log_api->log("CalculatorPlugin", LAWNCH_LOG_INFO, "Initialized");
+    }
+  }
+
   std::vector<std::string> get_triggers() override { return {":calc", "="}; }
 
   Lawnch::Result get_help() override {
@@ -269,7 +282,13 @@ public:
   }
 
   std::vector<Lawnch::Result> query(const std::string &expr) override {
-    return do_calc_query(expr);
+    auto results = do_calc_query(expr, host_);
+    if (host_ && host_->log_api && !expr.empty()) {
+      std::string msg = "Evaluated: '" + expr + "' -> " +
+                        (results.empty() ? "error" : results[0].name);
+      host_->log_api->log("CalculatorPlugin", LAWNCH_LOG_DEBUG, msg.c_str());
+    }
+    return results;
   }
 };
 
