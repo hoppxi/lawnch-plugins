@@ -3,52 +3,57 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs =
+    { self, nixpkgs, ... }:
+    let
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+    in
     {
-      self,
-      nixpkgs,
-      flake-utils,
-    }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          lib = pkgs.lib;
 
-        pluginApi = pkgs.stdenv.mkDerivation {
-          pname = "lawnch-plugin-api";
-          version = "0.2.0-alpha";
-          src = ./.;
-          nativeBuildInputs = [ pkgs.cmake ];
-          meta = with pkgs.lib; {
-            description = "API header for Lawnch plugins";
-            license = licenses.mit;
+          pluginApi = pkgs.stdenv.mkDerivation {
+            pname = "lawnch-plugin-api";
+            version = "0.2.0-alpha";
+
+            src = ./.;
+
+            nativeBuildInputs = [ pkgs.cmake ];
+
+            meta = {
+              description = "API header for Lawnch plugins";
+              license = lib.licenses.mit;
+            };
           };
-        };
 
-        parsePinfoValue =
-          file: key:
-          let
-            content = builtins.readFile file;
-            lines = builtins.filter (l: l != "") (pkgs.lib.splitString "\n" content);
-            matching = builtins.filter (l: pkgs.lib.hasPrefix "${key}=" l) lines;
-            line = builtins.head matching;
-          in
-          pkgs.lib.removePrefix "${key}=" line;
+          parsePinfoValue =
+            file: key:
+            let
+              content = builtins.readFile file;
+              lines = builtins.filter (l: l != "") (lib.splitString "\n" content);
+              matching = builtins.filter (l: lib.hasPrefix "${key}=" l) lines;
+              line = builtins.head matching;
+            in
+            lib.removePrefix "${key}=" line;
 
-        mkPlugin =
-          name:
-          let
-            pinfoFile = ./plugins/${name}/pinfo;
-            version = parsePinfoValue pinfoFile "version";
-
-            depsFile = ./plugins/${name}/deps.nix;
-            extraDeps = if builtins.pathExists depsFile then import depsFile { inherit pkgs; } else [ ];
-          in
-          {
-            package = pkgs.stdenv.mkDerivation {
+          mkPlugin =
+            name:
+            let
+              pinfoFile = ./plugins/${name}/pinfo;
+              version = parsePinfoValue pinfoFile "version";
+              depsFile = ./plugins/${name}/deps.nix;
+              extraDeps = if builtins.pathExists depsFile then import depsFile { inherit pkgs; } else [ ];
+            in
+            pkgs.stdenv.mkDerivation {
               pname = "lawnch-plugin-${name}";
               inherit version;
               src = ./plugins/${name};
@@ -65,55 +70,50 @@
               '';
             };
 
-            devShell = pkgs.mkShell {
-              nativeBuildInputs = [ pkgs.cmake ];
-              buildInputs = [ pluginApi ] ++ extraDeps;
-            };
-          };
+          pluginNames = [
+            "calculator"
+            "clipboard"
+            "command"
+            "emoji"
+            "files"
+            "files-nav"
+            "google"
+            "powermenu"
+            "wallpapers"
+            "youtube"
+          ];
 
-        pluginNames = [
-          "calculator"
-          "clipboard"
-          "command"
-          "emoji"
-          "files"
-          "files-nav"
-          "google"
-          "powermenu"
-          "wallpapers"
-          "youtube"
-        ];
+          pluginPkgs = lib.genAttrs pluginNames (name: mkPlugin name);
 
-        pluginResults = builtins.listToAttrs (
-          map (name: {
-            inherit name;
-            value = mkPlugin name;
-          }) pluginNames
-        );
-
-        pluginPackages = builtins.mapAttrs (_: r: r.package) pluginResults;
-        pluginDevShells = builtins.mapAttrs (_: r: r.devShell) pluginResults;
-
-      in
-      {
-        packages = pluginPackages // {
+        in
+        pluginPkgs
+        // {
           plugin-api = pluginApi;
           default = pkgs.symlinkJoin {
             name = "lawnch-plugins";
-            paths = [ pluginApi ] ++ builtins.attrValues pluginPackages;
-            meta = with pkgs.lib; {
+            paths = [ pluginApi ] ++ (builtins.attrValues pluginPkgs);
+            meta = {
               description = "All available Lawnch plugins";
-              license = licenses.mit;
+              license = lib.licenses.mit;
             };
           };
-        };
+        }
+      );
 
-        devShells = pluginDevShells // {
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          allPluginPkgs = builtins.attrValues self.packages.${system};
+        in
+        {
           default = pkgs.mkShell {
-            inputsFrom = builtins.attrValues pluginDevShells;
+            inputsFrom = allPluginPkgs;
           };
-        };
-      }
-    );
-
+        }
+        // (builtins.mapAttrs (name: pkg: pkgs.mkShell { inputsFrom = [ pkg ]; }) (
+          nixpkgs.lib.filterAttrs (n: _: n != "default" && n != "plugin-api") self.packages.${system}
+        ))
+      );
+    };
 }
