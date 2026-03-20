@@ -23,7 +23,7 @@
 
           pluginApi = pkgs.stdenv.mkDerivation {
             pname = "lawnch-plugin-api";
-            version = "0.2.0-alpha";
+            version = "0.3.0-alpha";
 
             src = ./.;
 
