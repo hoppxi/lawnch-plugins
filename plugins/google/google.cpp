@@ -80,6 +80,7 @@ std::vector<std::string> parse_google_json(const std::string &json) {
 }
 
 struct GoogleState {
+  const LawnchHostApi *host_api = nullptr;
   std::map<std::string, std::vector<std::string>> cache;
   std::deque<std::string> query_queue;
   std::mutex mutex;
@@ -103,8 +104,27 @@ void worker_loop(GoogleState *state) {
       query = state->query_queue.front();
       state->query_queue.pop_front();
 
-      if (state->cache.count(query))
+      if (state->host_api && state->host_api->log_api) {
+        state->host_api->log_api->log(
+            "GooglePlugin", LAWNCH_LOG_DEBUG,
+            ("Worker picked up query: " + query).c_str());
+      }
+
+      if (state->cache.count(query)) {
+        if (state->host_api && state->host_api->log_api) {
+          state->host_api->log_api->log(
+              "GooglePlugin", LAWNCH_LOG_DEBUG,
+              ("Worker found query in cache: " + query + ", skipping fetch.")
+                  .c_str());
+        }
         continue;
+      }
+    }
+
+    if (state->host_api && state->host_api->log_api) {
+      state->host_api->log_api->log(
+          "GooglePlugin", LAWNCH_LOG_DEBUG,
+          ("Worker fetching suggestions for: " + query).c_str());
     }
 
     CURL *curl = curl_easy_init();
@@ -126,9 +146,35 @@ void worker_loop(GoogleState *state) {
       if (res == CURLE_OK && !response_string.empty()) {
         auto sugs = parse_google_json(response_string);
 
+        if (state->host_api && state->host_api->log_api) {
+          state->host_api->log_api->log("GooglePlugin", LAWNCH_LOG_DEBUG,
+                                        ("Worker parsed " +
+                                         std::to_string(sugs.size()) +
+                                         " suggestions. Updating cache.")
+                                            .c_str());
+        }
+
         {
           std::lock_guard<std::mutex> lock(state->mutex);
           state->cache[query] = sugs;
+        }
+
+        if (state->host_api && state->host_api->log_api) {
+          state->host_api->log_api->log(
+              "GooglePlugin", LAWNCH_LOG_DEBUG,
+              "Worker calling request_results_update(nullptr) !");
+        }
+
+        if (state->host_api && state->host_api->request_results_update) {
+          state->host_api->request_results_update(state->host_api, nullptr);
+        }
+      } else {
+        if (state->host_api && state->host_api->log_api) {
+          state->host_api->log_api->log(
+              "GooglePlugin", LAWNCH_LOG_ERROR,
+              (std::string("CURL request failed or empty: ") +
+               curl_easy_strerror(res))
+                  .c_str());
         }
       }
     }
@@ -163,9 +209,21 @@ std::vector<Lawnch::Result> do_google_query(const std::string &term,
     if (!query_str.empty()) {
       std::lock_guard<std::mutex> lock(state->mutex);
       if (state->cache.count(query_str)) {
+        if (host && host->log_api) {
+          host->log_api->log(
+              "GooglePlugin", LAWNCH_LOG_DEBUG,
+              ("do_google_query: Cache HIT for query '" + query_str + "'")
+                  .c_str());
+        }
         cached_sugs = state->cache[query_str];
         cache_hit = true;
       } else {
+        if (host && host->log_api) {
+          host->log_api->log("GooglePlugin", LAWNCH_LOG_DEBUG,
+                             ("do_google_query: Cache MISS for query '" +
+                              query_str + "', queuing task.")
+                                 .c_str());
+        }
         state->query_queue.push_back(query_str);
         state->cv.notify_one();
       }
@@ -222,6 +280,7 @@ public:
       host->log_api->log("GooglePlugin", LAWNCH_LOG_INFO, "Initializing...");
     }
     curl_global_init(CURL_GLOBAL_ALL);
+    state_.host_api = host;
     state_.running = true;
     state_.worker_thread = std::thread(worker_loop, &state_);
     if (host && host->log_api) {
