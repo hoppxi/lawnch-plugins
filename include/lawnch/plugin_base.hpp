@@ -51,6 +51,13 @@ public:
     return {};
   }
   virtual uint32_t get_flags() const { return 0; }
+
+  virtual void request_results_update(const std::string &new_query = "") {
+    if (host_ && host_->request_results_update) {
+      host_->request_results_update(
+          host_, new_query.empty() ? nullptr : new_query.c_str());
+    }
+  }
 };
 
 static Plugin *g_plugin_instance = nullptr;

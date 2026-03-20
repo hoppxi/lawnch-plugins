@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define LAWNCH_PLUGIN_API_VERSION 1
+#define LAWNCH_PLUGIN_API_VERSION 2
 
 typedef struct {
   char *name;
@@ -82,6 +82,15 @@ typedef struct {
   void (*free_str_array)(char **array, int count);
 } LawnchStrApi;
 
+// Search Helper API
+typedef struct {
+  int (*fuzzy_match)(const char *pattern, const char *str);
+  int (*multi_word_match)(const char *pattern, const char *str);
+  int (*levenshtein_distance)(const char *s1, const char *s2);
+  double (*jaro_winkler_similarity)(const char *s1, const char *s2);
+  int (*calculate_advanced_score)(const char *query, const char *target);
+} LawnchSearchApi;
+
 struct LawnchHostApi_s;
 
 // A struct passed from the host to the plugin on init.
@@ -100,6 +109,12 @@ typedef struct LawnchHostApi_s {
   const LawnchLogApi *log_api;
   const LawnchFsApi *fs_api;
   const LawnchStrApi *str_api;
+  const LawnchSearchApi *search_api;
+  
+  // Requests the host to update the search results.
+  // If new_query is not NULL and not empty, it will replace the current search query.
+  void (*request_results_update)(const struct LawnchHostApi_s *host,
+                                 const char *new_query);
 } LawnchHostApi;
 
 typedef struct {
